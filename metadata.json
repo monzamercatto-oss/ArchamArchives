@@ -1,5 +1,5 @@
 {
-  "name": "Оцифровщик Сыщиков",
-  "description": "Convert Call of Cthulhu 7th Ed character sheets (PDF/Image) into Foundry VTT JSON and generate character tokens.",
+  "name": "arkham-archives",
+  "description": "Convert Call of Cthulhu 7th Ed character sheets into Foundry VTT JSON and generate tokens.",
   "requestFramePermissions": []
 }

@@ -27,95 +27,40 @@ export const extractCharacterData = async (
         - Extract simple attributes.
         - Look for "Occupation" or role.
         - Ensure "actorLink" in prototypeToken is false.
-        - **BIOGRAPHY/NOTES**:
-          - Extract any flavor text, background, or description found on the sheet.
-          - If none exists, GENERATE a mysterious, atmospheric description of their appearance, personality, and role in the story (2-3 paragraphs).
-          - **IMPORTANT**: Format 'system.biography' as a valid HTML string (use <p>, <b>, <i> tags).
+        - BIOGRAPHY/NOTES: Extract any flavor text or generate a mysterious 1920s description in Russian.
       `;
       break;
     case 'creature':
       targetTemplate = TEMPLATE_CREATURE;
       typeSpecificInstructions = `
         - This is a MONSTER / CREATURE stat block.
-        - "Education" (EDU), "Appearance" (APP) might be missing or N/A (set to 0).
-        - Look for "Armor" values.
-        - Look for "Attacks per round".
-        - Skills might be listed as attacks (e.g., "Fighting 50%", "Dodge 30%"). Add these to 'items'.
-        - Look for "Sanity Loss" (e.g., 1/1d6) if available.
-        - **BIOGRAPHY/NOTES**:
-          - Extract description text.
-          - If none exists, GENERATE a terrifying, Lovecraftian description of how this creature looks, sounds, and smells. Make it visceral and scary (3-4 paragraphs).
-          - **IMPORTANT**: Format 'system.biography' as a valid HTML string (use <p>, <b>, <i> tags).
+        - Skills might be listed as attacks. Add these to 'items'.
+        - BIOGRAPHY/NOTES: Extract or generate a terrifying Lovecraftian description in Russian.
       `;
       break;
     default:
       targetTemplate = TEMPLATE_INVESTIGATOR;
       typeSpecificInstructions = `
         - This is a standard INVESTIGATOR sheet.
-        - Extract Age, Residence, Birthplace if visible.
         - Ensure "actorLink" is true.
-        - **BIOGRAPHY/NOTES**:
-          - Extract Backstory/Personal Description text.
-          - If empty, summarize their occupation and background briefly.
-          - Format 'system.biography' as HTML string (<p> tags).
+        - BIOGRAPHY/NOTES: Extract Backstory/Personal Description text in Russian.
       `;
       break;
   }
 
   const prompt = `
-    ROLE: You are an advanced OCR and Data Mapping AI for "Call of Cthulhu 7th Edition".
+    ROLE: OCR and Data Mapping AI for "Call of Cthulhu 7th Edition".
+    CONTEXT: Extracting data for a ${actorType.toUpperCase()}.
+    INPUT: Character sheet images.
+    OUTPUT: Valid JSON matching the provided template.
     
-    CONTEXT: You are extracting data for a **${actorType.toUpperCase()}**.
-
-    INPUT: One or more images of a stat block or character sheet.
-    OUTPUT: A single valid JSON object strictly matching the provided template.
-
-    INSTRUCTIONS:
-    1. READ: Extract all text visible on the sheet.
-    2. OVERWRITE: Map values into the JSON template below. Replace placeholders (0, null, "NAME") with actual values.
-    3. LANGUAGE & TRANSLATION (CRITICAL):
-       - The output JSON MUST use **RUSSIAN** language for all text fields.
-       - **SKILLS ("items" array):** The 'name' of every skill MUST be in Russian.
-         - Example: "Spot Hidden" -> "Внимательность"
-         - Example: "Fighting (Brawl)" -> "Драка (Ближний бой)"
-         - Example: "Firearms (Handgun)" -> "Огнестрельное (Пистолет)"
-         - Example: "Dodge" -> "Уклонение"
-       - **OCCUPATION:** Translate occupation to Russian (e.g., "Detective" -> "Детектив").
-       - **BIOGRAPHY:** All generated or extracted notes must be in Russian.
-    4. BIOGRAPHY (NOTES):
-       - Fill the 'system.biography' field.
-       - IT MUST BE AN HTML STRING. Wrap paragraphs in <p></p>.
-    5. SKILLS/ITEMS:
-       - Iterate through EVERY skill/attack/weapon found.
-       - Create a JSON object in the 'items' array for each.
-       - Generate a random 16-char '_id'.
-       - **VALUE EXTRACTION RULE (CRITICAL)**:
-         - Call of Cthulhu 7th Ed character sheets often display three numbers for each skill: 
-           1. Base Value (Regular success)
-           2. Half Value (Hard success)
-           3. Fifth Value (Extreme success)
-         - **YOU MUST EXTRACT THE BASE VALUE**.
-         - The Base Value is almost always the **LARGEST NUMBER** of the three.
-         - Examples:
-           - "50 25 10" -> Value is 50.
-           - "40 (20/8)" -> Value is 40.
-           - A large bold "60" with smaller "30" and "12" next to it -> Value is 60.
-         - Map this largest value to 'system.value'.
-       - For CREATURES: Treat attacks (e.g., "Claw 40%") as skills.
-
-    TYPE SPECIFIC RULES:
-    ${typeSpecificInstructions}
-
-    COMMON MAPPING RULES:
-    - Characteristics (STR, CON, SIZ, DEX, APP, INT, POW, EDU): Use full values.
-    - Attributes (HP, MP, SAN, LUCK, BUILD, DB, MOV): Use current/max values found.
-    - If a field is not found on the sheet, leave it as the default in the template (0 or null).
-
-    Target JSON Template (FILL THIS):
+    CRITICAL RULES:
+    1. Output language MUST be RUSSIAN for all text.
+    2. Skill values: Extract the largest number (Base Value).
+    3. Biography: HTML string with <p> tags.
+    
+    Template:
     ${JSON.stringify(targetTemplate)}
-
-    Reference Item Structure (for creating skills):
-    ${userExampleJson}
   `;
 
   try {
@@ -125,14 +70,11 @@ export const extractCharacterData = async (
         data: file.data
       }
     }));
-
     parts.push({ text: prompt } as any);
 
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: {
-        parts: parts
-      },
+      model: 'gemini-3-flash-preview',
+      contents: { parts: parts },
       config: {
         responseMimeType: "application/json"
       }
@@ -140,9 +82,7 @@ export const extractCharacterData = async (
 
     const text = response.text;
     if (!text) throw new Error("No response from AI");
-    
     const cleanText = text.replace(/```json/g, '').replace(/```/g, '');
-    
     return JSON.parse(cleanText) as CoC7Actor;
   } catch (error) {
     console.error("Gemini Extraction Error:", error);
@@ -153,26 +93,14 @@ export const extractCharacterData = async (
 export const generateTokenImage = async (description: string, actorType: ActorType): Promise<string> => {
   const apiKey = process.env.API_KEY;
   if (!apiKey) throw new Error("API Key is missing.");
-
   const ai = new GoogleGenAI({ apiKey });
 
-  let stylePrompt = "";
-  if (actorType === 'creature') {
-    // Strictly forcing photo-realism and removing artistic terms
-    stylePrompt = "Style: Real life photograph, flash photography in pitch darkness. The image must look like a real, damaged, blurry black and white photo taken in the 1920s. Harsh flashlight beam illuminating the creature. Heavy film grain, motion blur, poor focus, realistic textures, slime, dirt. It should look like physical evidence found at a crime scene. NOT a digital painting, NOT a drawing, NOT an illustration, NOT CGI. Scary found footage.";
-  } else {
-    stylePrompt = "Style: Authentic 1920s vintage photograph, sepia tone, heavy film grain, scratches, cracks, worn texture, vignette. Portrait.";
-  }
+  let stylePrompt = actorType === 'creature' 
+    ? "Real life photograph, flash photography, 1920s grainy blurry photo, terrifying monster, found footage."
+    : "1920s vintage portrait photograph, sepia, heavy grain, scratches.";
 
-  // Clean description of HTML tags for the image prompt
   const cleanDescription = description.replace(/<[^>]*>?/gm, '');
-
-  const prompt = `
-    Generate a portrait/image of a Call of Cthulhu ${actorType} matching this description: "${cleanDescription}".
-    ${stylePrompt}
-    The subject should be centered facing forward.
-    No text.
-  `;
+  const prompt = `Portrait of a Call of Cthulhu ${actorType}: ${cleanDescription}. ${stylePrompt}`;
 
   try {
     const response = await ai.models.generateContent({
